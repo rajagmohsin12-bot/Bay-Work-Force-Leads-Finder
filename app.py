@@ -1,102 +1,72 @@
 import streamlit as st
-import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-import re, time, random
-from urllib.parse import quote_plus
+from serpapi import GoogleSearch
+import re
 
-# --- CONFIG & AUTH ---
+# --- CONFIG ---
+SERP_API_KEY = "25c6b3cd22779a3bdacb0a7f4c899db1252f1dbd7f44cfd9714d382352b0991e"
 ADMIN_PASSWORD = "boss_creator"
 
-def get_headers():
-    return {
-        "User-Agent": random.choice([
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/123.0.0.0 Safari/537.36"
-        ]),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    }
-
-def aggressive_extract(text, domain):
-    # Regex to find emails even if obfuscated (e.g., [at], (dot))
-    patterns = [
-        rf"[a-zA-Z0-9._%+\-]+@{re.escape(domain)}",
-        rf"[a-zA-Z0-9._%+\-]+\s*[\[\(]?at[\]\)]?\s*{re.escape(domain.split('.')[0])}\s*[\[\(]?dot[\]\)]?\s*{re.escape(domain.split('.')[-1])}"
-    ]
-    found = []
-    for p in patterns:
-        matches = re.findall(p, text, re.IGNORECASE)
-        for m in matches:
-            clean = m.replace("[at]", "@").replace("(at)", "@").replace("[dot]", ".").replace("(dot)", ".").lower().strip()
-            found.append(clean)
-    return list(set(found))
-
-def deep_force_search(name, domain, designation, location):
-    st.info("🚀 Initiating Deep Force Search across multiple OSINT layers...")
-    results = []
-    
-    # 8 Powerful Search Dorks
+def find_verified_emails(name, domain):
+    # Asali Google Dorking jo published emails nikaalti hai
     queries = [
-        f'"{name}" "@{domain}"',
-        f'"{name}" {domain} contact',
-        f'site:://linkedin.com "{name}" {domain}',
-        f'site:{domain} "{name}"',
-        f'intext:"{name}" intext:"@{domain}"',
-        f'"{designation}" "{location}" "@{domain}"',
+        f'"{name}" @{domain}',
         f'"{name}" email "{domain}"',
-        f'"{name}" contact details {domain}'
+        f'site:://linkedin.com "{name}" "{domain}"'
     ]
-
-    progress = st.progress(0)
-    for i, q in enumerate(queries):
-        url = f"https://bing.com{quote_plus(q)}"
-        try:
-            r = requests.get(url, headers=get_headers(), timeout=12)
-            soup = BeautifulSoup(r.text, "html.parser")
-            for a in soup.select("li.b_algo h2 a"):
-                link = a['href']
-                if any(x in link for x in ["bing", "microsoft", "google"]): continue
-                try:
-                    # Actually visit the page to find hidden emails
-                    page = requests.get(link, headers=get_headers(), timeout=6)
-                    emails = aggressive_extract(page.text, domain)
-                    for e in emails:
-                        results.append({"Email": e, "Source": link, "Status": "PUBLISHED & VERIFIED"})
-                except: continue
-        except: continue
-        progress.progress((i + 1) / len(queries))
+    found_emails = []
     
-    return pd.DataFrame(results).drop_duplicates(subset='Email') if results else None
+    for q in queries:
+        try:
+            search = GoogleSearch({
+                "q": q,
+                "api_key": SERP_API_KEY,
+                "engine": "google"
+            })
+            result = search.get_dict()
+            
+            if "organic_results" in result:
+                for res in result["organic_results"]:
+                    # Snippet aur Title dono scan karna
+                    text = res.get("snippet", "") + " " + res.get("title", "")
+                    emails = re.findall(rf"[a-zA-Z0-9._%+-]+@{re.escape(domain)}", text, re.IGNORECASE)
+                    found_emails.extend(emails)
+        except Exception as e:
+            st.error(f"Search Error: {e}")
+                
+    return list(set(found_emails))
 
-# --- INTERFACE ---
-st.set_page_config(page_title="Deep Force Researcher v2.0", layout="wide")
+# --- UI ---
+st.set_page_config(page_title="Ultra Lead Finder", page_icon="🚀")
+st.title("🚀 Ultra Verified Lead Finder")
 
-if "auth" not in st.session_state: st.session_state.auth = False
+if "auth" not in st.session_state:
+    st.session_state.auth = False
 
 if not st.session_state.auth:
-    st.title("🛡️ Lead Intelligence Login")
-    if st.text_input("Enter Admin Key", type="password") == ADMIN_PASSWORD:
-        if st.button("Unlock Tool"):
+    pw = st.text_input("Admin Password", type="password")
+    if st.button("Unlock"):
+        if pw == ADMIN_PASSWORD:
             st.session_state.auth = True
             st.rerun()
 else:
-    st.title("🕵️ Deep Force Researcher (OSINT Engine)")
-    c1, c2, c3, c4 = st.columns(4)
-    target_name = c1.text_input("Name", placeholder="Riccardo Bordignon")
-    target_domain = c2.text_input("Domain", placeholder="italpasta.com")
-    target_des = c3.text_input("Designation", placeholder="HR Manager")
-    target_loc = c4.text_input("City", placeholder="Toronto")
-
-    if st.button("🔥 Run Brute Force Research"):
-        if target_name and target_domain:
-            data = deep_force_search(target_name, target_domain, target_des, target_loc)
-            if data is not None:
-                st.success(f"✅ FOUND {len(data)} REAL MATCHES!")
-                st.table(data)
-            else:
-                st.error("No direct match found in deep scan. Analyzing patterns...")
-                parts = target_name.lower().split()
-                if len(parts) >= 2:
-                    st.code(f"{parts[0][0]}{parts[-1]}@{target_domain}")
+    st.sidebar.button("Logout", on_click=lambda: st.session_state.update({"auth": False}))
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        name = st.text_input("Person Name", placeholder="e.g. Riccardo Bordignon")
+    with col2:
+        domain = st.text_input("Domain", placeholder="e.g. italpasta.com")
+    
+    if st.button("Deep Search"):
+        if name and domain:
+            with st.spinner("Google se verified data nikaal raha hoon..."):
+                results = find_verified_emails(name, domain)
+                if results:
+                    st.success(f"✅ Found {len(results)} Published Email(s):")
+                    for e in results:
+                        st.code(e)
+                else:
+                    st.error("Google par koi published email nahi mili.")
+                    st.info("Tip: Iska matlab hai ye email publicly internet par majood nahi hai.")
         else:
-            st.warning("Please provide Name and Domain.")
+            st.warning("Naam aur Domain likhein.")
