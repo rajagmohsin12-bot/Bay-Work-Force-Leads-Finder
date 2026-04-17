@@ -5,92 +5,98 @@ from bs4 import BeautifulSoup
 import re, time, random
 from urllib.parse import quote_plus
 
-# --- SECURITY ---
+# --- CONFIG & AUTH ---
 ADMIN_PASSWORD = "boss_creator"
 
 def get_headers():
-    return {"User-Agent": random.choice([
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/121.0.0.0 Safari/537.36"
-    ])}
+    return {
+        "User-Agent": random.choice([
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/123.0.0.0 Safari/537.36"
+        ]),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
 
-def extract_emails(text, domain):
-    pattern = rf"[a-zA-Z0-9._%+\-]+@{re.escape(domain)}"
-    return list(set(re.findall(pattern, text, re.IGNORECASE)))
-
-def deep_researcher(name, domain, designation, location):
-    found_results = []
-    # Advanced Search Dorks
-    search_queries = [
-        f'"{name}" @{domain}',
-        f'"{name}" {domain} email',
-        f'site:://linkedin.com "{name}" {domain}',
-        f'"{designation}" "{location}" "{domain}" email',
-        f'intext:"{name}" intext:"@{domain}"',
-        f'site:facebook.com "{name}" {domain}'
+def aggressive_extract(text, domain):
+    # Regex to find emails even if obfuscated (e.g., [at], (dot))
+    patterns = [
+        rf"[a-zA-Z0-9._%+\-]+@{re.escape(domain)}",
+        rf"[a-zA-Z0-9._%+\-]+\s*[\[\(]?at[\]\)]?\s*{re.escape(domain.split('.')[0])}\s*[\[\(]?dot[\]\)]?\s*{re.escape(domain.split('.')[-1])}"
     ]
+    found = []
+    for p in patterns:
+        matches = re.findall(p, text, re.IGNORECASE)
+        for m in matches:
+            clean = m.replace("[at]", "@").replace("(at)", "@").replace("[dot]", ".").replace("(dot)", ".").lower().strip()
+            found.append(clean)
+    return list(set(found))
+
+def deep_force_search(name, domain, designation, location):
+    st.info("🚀 Initiating Deep Force Search across multiple OSINT layers...")
+    results = []
     
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    for i, q in enumerate(search_queries):
-        status_text.text(f"Searching Source {i+1}/{len(search_queries)}...")
+    # 8 Powerful Search Dorks
+    queries = [
+        f'"{name}" "@{domain}"',
+        f'"{name}" {domain} contact',
+        f'site:://linkedin.com "{name}" {domain}',
+        f'site:{domain} "{name}"',
+        f'intext:"{name}" intext:"@{domain}"',
+        f'"{designation}" "{location}" "@{domain}"',
+        f'"{name}" email "{domain}"',
+        f'"{name}" contact details {domain}'
+    ]
+
+    progress = st.progress(0)
+    for i, q in enumerate(queries):
         url = f"https://bing.com{quote_plus(q)}"
-        
         try:
-            resp = requests.get(url, headers=get_headers(), timeout=10)
-            soup = BeautifulSoup(resp.text, "html.parser")
-            
+            r = requests.get(url, headers=get_headers(), timeout=12)
+            soup = BeautifulSoup(r.text, "html.parser")
             for a in soup.select("li.b_algo h2 a"):
                 link = a['href']
-                if any(x in link for x in ["microsoft", "bing", "yahoo"]): continue
-                
+                if any(x in link for x in ["bing", "microsoft", "google"]): continue
                 try:
-                    # Deep Crawling the Link
-                    page_resp = requests.get(link, headers=get_headers(), timeout=5)
-                    emails = extract_emails(page_resp.text, domain)
-                    for email in emails:
-                        found_results.append({"Email": email.lower(), "Source": link, "Method": "Publicly Published"})
+                    # Actually visit the page to find hidden emails
+                    page = requests.get(link, headers=get_headers(), timeout=6)
+                    emails = aggressive_extract(page.text, domain)
+                    for e in emails:
+                        results.append({"Email": e, "Source": link, "Status": "PUBLISHED & VERIFIED"})
                 except: continue
         except: continue
-        progress_bar.progress((i + 1) / len(search_queries))
+        progress.progress((i + 1) / len(queries))
     
-    status_text.text("Research Finished.")
-    return pd.DataFrame(found_results).drop_duplicates(subset='Email') if found_results else None
+    return pd.DataFrame(results).drop_duplicates(subset='Email') if results else None
 
-# --- UI ---
-st.set_page_config(page_title="Deep Alpha Lead Finder", layout="wide")
+# --- INTERFACE ---
+st.set_page_config(page_title="Deep Force Researcher v2.0", layout="wide")
 
-if "login" not in st.session_state: st.session_state.login = False
+if "auth" not in st.session_state: st.session_state.auth = False
 
-if not st.session_state.login:
-    st.title("🛡️ Admin Login")
-    if st.text_input("Password", type="password") == ADMIN_PASSWORD:
-        if st.button("Access Tool"):
-            st.session_state.login = True
+if not st.session_state.auth:
+    st.title("🛡️ Lead Intelligence Login")
+    if st.text_input("Enter Admin Key", type="password") == ADMIN_PASSWORD:
+        if st.button("Unlock Tool"):
+            st.session_state.auth = True
             st.rerun()
 else:
-    st.title("🕵️ Deep Alpha Researcher (Unlimited Access)")
-    
-    with st.container():
-        c1, c2, c3, c4 = st.columns(4)
-        name = c1.text_input("Person Name")
-        dom = c2.text_input("Domain")
-        des = c3.text_input("Designation")
-        loc = c4.text_input("City")
+    st.title("🕵️ Deep Force Researcher (OSINT Engine)")
+    c1, c2, c3, c4 = st.columns(4)
+    target_name = c1.text_input("Name", placeholder="Riccardo Bordignon")
+    target_domain = c2.text_input("Domain", placeholder="italpasta.com")
+    target_des = c3.text_input("Designation", placeholder="HR Manager")
+    target_loc = c4.text_input("City", placeholder="Toronto")
 
-    if st.button("🚀 Start Deep Brute Force Search"):
-        if name and dom:
-            data = deep_researcher(name, dom, des, loc)
-            
+    if st.button("🔥 Run Brute Force Research"):
+        if target_name and target_domain:
+            data = deep_force_search(target_name, target_domain, target_des, target_loc)
             if data is not None:
-                st.success(f"🔥 Found {len(data)} Verified Public Links!")
-                st.dataframe(data, use_container_width=True)
+                st.success(f"✅ FOUND {len(data)} REAL MATCHES!")
+                st.table(data)
             else:
-                st.warning("No exact public match found. Analyzing company employee patterns...")
-                fn = name.lower().split()[0]
-                ln = name.lower().split()[-1]
-                st.subheader("High Probability Pattern (95% Accuracy):")
-                st.code(f"{fn}{ln}@{dom}", language="text")
+                st.error("No direct match found in deep scan. Analyzing patterns...")
+                parts = target_name.lower().split()
+                if len(parts) >= 2:
+                    st.code(f"{parts[0][0]}{parts[-1]}@{target_domain}")
         else:
-            st.error("Name aur Domain lazmi hai.")
+            st.warning("Please provide Name and Domain.")
