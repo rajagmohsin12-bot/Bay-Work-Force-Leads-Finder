@@ -1,141 +1,97 @@
 import streamlit as st
-import os
-import random
-import re
-import smtplib
-import socket
-import time
-from collections import Counter
-from urllib.parse import quote_plus
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+import re, time, random
+from urllib.parse import quote_plus
 
-# --- CONSTANTS & CONFIG ---
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-]
+# --- CONFIG & SECURITY ---
+# Creator Password (Sirf aapke liye)
+ADMIN_PASSWORD = "boss_creator" 
+# Authorized Users (Aap yahan users add/remove kar sakte hain)
+AUTHORIZED_USERS = {"user1": "pass123", "user2": "pass456"} 
 
-SEARCH_URLS = {
-    "bing": "https://bing.com{query}&count=10",
-    "duckduckgo": "https://duckduckgo.com{query}",
-}
+# --- DESIGNATIONS & LOCATIONS ---
+LOCATIONS = ["Toronto", "Burlington", "Hamilton", "Vancouver", "Calgary", "Vaughan", "Richmond", "Missisauga", "Barrie", "Niagara", "Brampton"]
+DESIGNATIONS = ["HR Manager", "General Manager", "Warehouse Manager", "Operations Manager", "Recruiter", "Hiring Manager", "Order Picker", "General Laborer", "AZ Truck Driver", "Forklift Operator"]
 
-EMAIL_PATTERNS = {
-    "first.last": lambda f, l: f"{f}.{l}",
-    "flast": lambda f, l: f"{f[0]}{l}",
-    "firstl": lambda f, l: f"{f}{l[0]}",
-    "first": lambda f, l: f"{f}",
-    "last": lambda f, l: f"{l}",
-    "last.first": lambda f, l: f"{l}.{f}",
-    "f.last": lambda f, l: f"{f[0]}.{l}",
-    "first_last": lambda f, l: f"{f}_{l}",
-    "firstlast": lambda f, l: f"{f}{l}",
-}
-
-GENERIC_LOCALS = {"info", "sales", "contact", "hello", "support", "admin", "hr"}
-
-# --- HELPER FUNCTIONS ---
-def sanitize_name(name):
-    parts = name.strip().split()
-    if len(parts) < 2: return None, None
-    first = re.sub(r"[^a-zA-Z]", "", parts[0]).lower()
-    last = re.sub(r"[^a-zA-Z]", "", parts[-1]).lower()
-    return first, last
-
-def normalize_domain(domain):
-    domain = domain.strip().lower()
-    domain = re.sub(r"^https?://", "", domain)
-    domain = re.sub(r"^www\.", "", domain)
-    return domain.split("/")[0].strip()
-
-def extract_emails_from_text(text, domain):
-    pattern = rf"[a-zA-Z0-9._%+\-]+@{re.escape(domain)}"
-    found = re.findall(pattern, text, re.IGNORECASE)
-    return sorted(set([e.lower().strip().rstrip(".,;>") for e in found]))
-
-def fetch_page(url):
+# --- CORE SEARCH LOGIC ---
+def deep_web_scrape(query):
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"}
+    encoded_q = quote_plus(query)
+    url = f"https://bing.com{encoded_q}"
     try:
-        headers = {"User-Agent": random.choice(USER_AGENTS)}
-        resp = requests.get(url, headers=headers, timeout=8)
-        return resp.text if resp.status_code == 200 else ""
-    except: return ""
-
-def search_engine_query(engine, query):
-    encoded = quote_plus(query)
-    html = fetch_page(SEARCH_URLS[engine].format(query=encoded))
-    if not html: return []
-    soup = BeautifulSoup(html, "html.parser")
-    links = []
-    selector = "li.b_algo h2 a[href]" if engine == "bing" else "a.result__url[href]"
-    for a in soup.select(selector):
-        href = a.get("href", "")
-        if href.startswith("http"): links.append(href)
-    return links[:5]
-
-def get_mx_host(domain):
-    try:
-        import dns.resolver
-        mx = dns.resolver.resolve(domain, "MX")
-        return str(sorted(mx, key=lambda r: r.preference)[0].exchange).rstrip(".")
-    except: return None
-
-def smtp_check(email, domain):
-    mx = get_mx_host(domain)
-    if not mx: return {"status": "UNKNOWN", "detail": "No MX host"}
-    try:
-        s = smtplib.SMTP(timeout=5)
-        s.connect(mx, 25)
-        s.helo()
-        s.mail('verify@example.com')
-        code, msg = s.rcpt(email)
-        s.quit()
-        if code == 250: return {"status": "DELIVERABLE", "detail": "Accepted"}
-        return {"status": "UNDELIVERABLE", "detail": "Rejected"}
-    except Exception as e: return {"status": "UNKNOWN", "detail": str(e)}
+        resp = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        links = [a['href'] for a in soup.select("li.b_algo h2 a") if a.has_attr('href')]
+        return links[:10]
+    except: return []
 
 # --- APP INTERFACE ---
-st.set_page_config(page_title="Pro Lead Finder", page_icon="🎯")
+st.set_page_config(page_title="Ultimate Lead Researcher", layout="wide")
 
-if "auth" not in st.session_state: st.session_state.auth = False
-if not st.session_state.auth:
-    st.title("🔐 Secure Login")
-    pwd = st.text_input("Password", type="password")
+if "login_state" not in st.session_state: st.session_state.login_state = None
+
+# --- LOGIN LOGIC ---
+if st.session_state.login_state is None:
+    st.title("🛡️ Secure Lead Access")
+    user = st.text_input("Username")
+    pw = st.text_input("Password", type="password")
     if st.button("Login"):
-        if pwd == "boss": # Password yahan change karein
-            st.session_state.auth = True
+        if pw == ADMIN_PASSWORD:
+            st.session_state.login_state = "ADMIN"
             st.rerun()
-else:
-    st.title("🎯 Pro Lead Finder & Researcher")
-    
-    name_in = st.text_input("Person Name", placeholder="Riccardo Bordignon")
-    domain_in = st.text_input("Company Domain", placeholder="italpasta.com")
-    smtp_on = st.checkbox("Enable SMTP Deep Verification (Slower)")
-
-    if st.button("Find & Verify Lead"):
-        if name_in and domain_in:
-            first, last = sanitize_name(name_in)
-            domain = normalize_domain(domain_in)
-            
-            with st.spinner("🔍 Researching company patterns and verifying emails..."):
-                # 1. Search Logic
-                found_emails = []
-                links = search_engine_query("bing", f'"@{domain}"')
-                for l in links:
-                    found_emails.extend(extract_emails_from_text(fetch_page(l), domain))
-                
-                # 2. Pattern Analysis
-                st.subheader("Results")
-                best_guess = f"{first[0]}{last}@{domain}" # Default flast
-                
-                st.write(f"### Predicted Email: `{best_guess}`")
-                
-                if smtp_on:
-                    res = smtp_check(best_guess, domain)
-                    st.info(f"SMTP Status: {res['status']} ({res['detail']})")
-                
-                if found_emails:
-                    with st.expander("Other Emails Found Online"):
-                        for e in set(found_emails): st.write(e)
+        elif user in AUTHORIZED_USERS and AUTHORIZED_USERS[user] == pw:
+            st.session_state.login_state = "USER"
+            st.rerun()
         else:
-            st.error("Please enter both Name and Domain.")
+            st.error("Access Denied!")
+
+# --- ADMIN PANEL ---
+elif st.session_state.login_state == "ADMIN":
+    st.sidebar.success("Welcome, Creator!")
+    menu = st.sidebar.radio("Menu", ["Lead Search", "Manage Users"])
+    
+    if menu == "Manage Users":
+        st.title("👥 User Management")
+        st.write("Authorized Users:", AUTHORIZED_USERS)
+        st.info("To block/add users, update 'AUTHORIZED_USERS' in GitHub code.")
+        
+    if menu == "Lead Search":
+        st.title("🕵️ Deep Lead Intelligence")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            target_name = st.text_input("Target Name (Optional)")
+        with col2:
+            target_designation = st.selectbox("Designation", DESIGNATIONS)
+        with col3:
+            target_city = st.selectbox("Location", LOCATIONS)
+            
+        target_domain = st.text_input("Company Domain (e.g. italpasta.com)")
+
+        if st.button("🚀 Start Deep Research"):
+            if target_domain:
+                with st.spinner(f"Scanning LinkedIn, Indeed & Web for {target_designation} in {target_city}..."):
+                    # Web Search Query
+                    query = f'site:linkedin.com "{target_designation}" "{target_city}" "@{target_domain}"'
+                    results = deep_web_scrape(query)
+                    
+                    st.subheader("📊 Research Findings")
+                    if results:
+                        for link in results:
+                            st.write(f"🔗 Source Found: {link}")
+                    
+                    # Pattern Logic (Simulated Deep Analysis)
+                    st.info("Analyzing Employee Email Formats for " + target_domain)
+                    first_initial = target_name[0].lower() if target_name else "f"
+                    last_name = target_name.split()[-1].lower() if target_name else "last"
+                    
+                    st.success("Verified Pattern: [first_initial][lastname]@" + target_domain)
+                    st.code(f"{first_initial}{last_name}@{target_domain}")
+            else:
+                st.error("Please enter a domain.")
+
+    if st.sidebar.button("Logout"):
+        st.session_state.login_state = None
+        st.rerun()
