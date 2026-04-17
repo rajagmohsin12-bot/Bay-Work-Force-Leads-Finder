@@ -88,8 +88,8 @@ else:
                 st.dataframe(data, use_container_width=True)
             else:
                 st.warning("No exact public match found. Analyzing company employee patterns...")
-                fn = name.split().lower()
-                ln = name.split()[-1].lower()
+                fn = name.lower().split()[0]
+                ln = name.lower().split()[-1]
                 st.subheader("High Probability Pattern (95% Accuracy):")
                 st.code(f"{fn}{ln}@{dom}", language="text")
         else:
